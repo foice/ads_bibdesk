@@ -7,7 +7,7 @@ Run::
 
     python setup.py install
 
-and the binary adsbibdesk will be installed into your path.
+and the binary arxivbibdesk will be installed into your path.
 
 To build the Add to BibDesk service, run::
 
@@ -33,7 +33,7 @@ def rel_path(path):
 
 
 def get_version():
-    with open(rel_path("adsbibdesk.py")) as f:
+    with open(rel_path("arxivbibdesk.py")) as f:
         for line in f:
             if line.startswith("VERSION"):
                 version = re.findall(r'\"(.+?)\"', line)[0]
@@ -43,7 +43,7 @@ def get_version():
 
 class BuildService(Command):
     """Setuptools Command to build the Service and App.
-    
+
     This replaces the build.py script.
     """
     description = "build Add to BibDesk.service(.app)"
@@ -63,7 +63,7 @@ class BuildService(Command):
             "Add to BibDesk.workflow", "Contents", "document.wflow"))
         app_path = rel_path(os.path.join("build", "ADS to BibDesk.app",
             "Contents", "document.wflow"))
-        py_path = rel_path("adsbibdesk.py")
+        py_path = rel_path("arxivbibdesk.py")
 
         for workflow in (service_path, app_path):
             xml = ElementTree.fromstring(open(workflow).read())
@@ -87,21 +87,21 @@ class BuildService(Command):
 
 
 setup(
-    name='adsbibdesk',
+    name='arxivbibdesk',
     version=get_version(),
-    author='Jonathan Sick',
-    author_email='jonathansick@mac.com',
-    url="http://www.jonathansick.ca/adsbibdesk/",
+    author='foice',
+    author_email='',
+    url="",
     description="Add papers from arxiv.org or NASA/SAO ADS to your BibDesk"
                 " bibliography.",
     long_description=read('README.rst'),
-    keywords="bibtex astronomy",
+    keywords="bibtex ",
     classifiers=["Development Status :: 5 - Production/Stable",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: MacOS :: MacOS X",
         "Topic :: Scientific/Engineering :: Astronomy"],
-    py_modules=['adsbibdesk'],
-    entry_points={'console_scripts': ['adsbibdesk = adsbibdesk:main']},
+    py_modules=['arxivbibdesk'],
+    entry_points={'console_scripts': ['arxivbibdesk = arxivbibdesk:main']},
     cmdclass={'service': BuildService}
 )
