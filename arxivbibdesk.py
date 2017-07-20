@@ -232,15 +232,20 @@ def process_token(article_token, prefs, bibdesk):
     # The goal is to get a URL into ADS
     logging.debug("process_token found article token %s", article_token)
     connector = ADSConnector(article_token, prefs)
+    # ADSConnector will take care of the cases in which is arXiv instead of ADS
+    # at the end it will generat a connector.bib with the bibtex info
     ads_parser = ADSHTMLParser(prefs=prefs)
     overwrite=prefs['overwrite']
+    # print 'connector.ads_read', connector.ads_read
 
     if isinstance(connector.ads_read, basestring):
         # parse the ADS HTML file
+        # print 'HTML from ADS'
         ads_parser.parse(connector.ads_read)
 
     elif connector.ads_read and getattr(connector, 'bibtex') is not None:
-        # parsed from arXiv - dummy ads info
+        # print 'connector into ads_parser'
+        # parsed from arXiv or CDS - fill in ADS info
         ads_parser.bibtex = connector.bibtex
         ads_parser.arxivid = ads_parser.bibtex.Eprint
         ads_parser.author = ads_parser.bibtex.Author.split(' and ')
@@ -249,6 +254,7 @@ def process_token(article_token, prefs, bibdesk):
         ads_parser.comment = ads_parser.bibtex.AdsComment
         # original URL where we *should* have gotten the info
         ads_parser.bibtex.AdsURL = connector.ads_url
+        #ads_parser.pdf_link = connector.pdf_link
         # inject arXiv mirror into ArXivURL
         if 'arxiv_mirror' in prefs and prefs['arxiv_mirror']:
             tmpurl = urlparse.urlsplit(ads_parser.bibtex.ArXivURL)
@@ -258,10 +264,15 @@ def process_token(article_token, prefs, bibdesk):
                  tmpurl.path, tmpurl.query,
                  tmpurl.fragment))
         # link for PDF download
+        print ads_parser.bibtex.info['link']
         try:
-            link = [l.get('href', '') for l in ads_parser.bibtex.info['link']
-                    if l.get('title') == 'pdf'][0]
-            ads_parser.links = {'preprint': link}
+            if "http:" in ads_parser.bibtex.info['link']:
+
+                ads_parser.links = {'confnote': ads_parser.bibtex.info['link']}
+            else:
+                link = [l.get('href', '') for l in ads_parser.bibtex.info['link']
+                        if l.get('title') == 'pdf'][0]
+                ads_parser.links = {'preprint': link}
         except IndexError:
             logging.debug("process_token could not find preprint PDF link")
             pass
@@ -345,12 +356,15 @@ def process_token(article_token, prefs, bibdesk):
 
     # FIXME refactor out this bibdesk import code?
     if not found:
+        print ads_parser.bibtex.__str__()
         # add new entry
         pub = bibdesk(
             'import from "%s"' % ads_parser.bibtex.__str__().
             replace('\\', r'\\').replace('"', r'\"'))
+        print pub
         # pub id
         pub = pub.descriptorAtIndex_(1).descriptorAtIndex_(3).stringValue()
+        print pub
         # automatic cite key
         bibdesk('set cite key to generated cite key', pub)
 
@@ -666,6 +680,7 @@ class ADSConnector(object):
 
     Tokens are tested in order of:
 
+    - CDS preprint number
     - arxiv identifiers
     - bibcodes / digital object identifier (DOI)
     - ADS urls
@@ -678,6 +693,21 @@ class ADSConnector(object):
         self.ads_url = None  # string URL to ADS
         self.ads_read = None  # a urllib2.urlopen connection to ADS
         self.url_parts = urlparse.urlsplit(token)  # supposing it is a URL
+
+        if self._is_CDS():
+            logging.debug("ADSConnector found CDS ID %s", self.token)
+            notify('CDS page found for', self.token,
+                   'Parsing the XML page...')
+            import cdsbibdesk
+            cds_entry = cdsbibdesk.CDSParser()
+            cds_entry.parse_at_id(self.token)
+            self.bibtex = cds_entry.bib
+            self.ads_url = cds_entry.ads_url
+            self.ads_read = True
+            #print "getattr"
+            #print getattr(cds_entry, 'bib')
+            #self.pdf_link = cds_entry.pdf_link
+            #cds_entry.bibtex =
 
         # An arXiv identifier or URL?
         if self._is_arxiv():
@@ -692,6 +722,11 @@ class ADSConnector(object):
                 arxiv_bib = ArXivParser()
                 try:
                     arxiv_bib.parse_at_id(self.arxiv_id)
+                    # this defines properties arxiv_bib.info an arxiv_bib.bib with
+                    # a dictionary of the bibtex and a objects-based bibtex entry
+                    # e.g arxiv_bib.bib.Title
+                    # finally it can be casted as a string, which is the bibtex entry
+                    # itself. I will achieve (hopefully) such string by ar CDS query
                     logging.debug(
                         "arXiv page (%s) parsed for %s"
                         % (arxiv_bib.url, self.token))
@@ -718,6 +753,23 @@ class ADSConnector(object):
             if self.url_parts.netloc in self.prefs.adsmirrors \
                     and self._is_ads_page():
                 logging.debug("ADSConnector found ADS page %s", self.token)
+
+    def _is_CDS(self):
+        """Try to classify the token as CDS article by getting the recid:
+        :return: True if CDS recid is recovered
+        """
+        from xml.etree import ElementTree
+        url = 'https://cds.cern.ch/search?ln=en&p=reportnumber%3A"' + self.token + '"&action_search=Search&op1=a&m1=a&p1=&f1=&c=CERN+Document+Server&sf=&so=d&rm=&rg=10&sc=1&of=xm'
+        try:
+            xml = ElementTree.fromstring(urllib2.urlopen(url).read())
+        except (urllib2.HTTPError, urllib2.URLError), err:
+            logging.debug("ArXivParser failed on URL: %s", url)
+            raise ArXivException(err)
+        if xml.find(".//*[@tag='001']")>0:
+            return True
+        return False
+
+
 
     def _is_arxiv(self):
         """Try to classify the token as an arxiv article, either:
@@ -1199,6 +1251,7 @@ class ADSHTMLParser(HTMLParser):
                             stdout=sp.PIPE,
                             stderr=sp.PIPE).stdout.read()
 
+
         # refereed
         if 'article' in self.links:
             url = self.links['article']
@@ -1254,6 +1307,21 @@ class ADSHTMLParser(HTMLParser):
                          stdout=sp.PIPE, stderr=sp.PIPE).communicate()
                 if 'PDF document' in filetype(pdf):
                     return pdf
+
+        # CDS
+        if 'confnote' in self.links:
+            # PDF link
+            url = self.links['confnote']
+            print 'confnote URL', url
+            # get CDS PDF
+            fd, pdf = tempfile.mkstemp(suffix='.pdf')
+            os.fdopen(fd, 'wb').write(urllib2.urlopen(
+                url).read())
+            if 'PDF document' in filetype(pdf):
+                print pdf
+                return pdf
+
+
 
         # arXiv
         if 'preprint' in self.links:
