@@ -109,7 +109,10 @@ def find_how_many_authors_in_xml(xml):
     return len(xml.findall(".//*[@tag='700']/*[@code='a']"))
 
 def find_collaboration_in_xml(xml):
-    return xml.find(".//*[@tag='110']/*[@code='a']").text
+    if xml.find(".//*[@tag='110']/*[@code='a']") is not None:
+        return xml.find(".//*[@tag='110']/*[@code='a']").text
+    if xml.find(".//*[@tag='710']/*[@code='g']") is not None:
+        return xml.find(".//*[@tag='710']/*[@code='g']").text
 
 
 class CDSbibtex(object):
@@ -126,7 +129,7 @@ class CDSbibtex(object):
         import string
         result='@article{%s,\n' % self.Eprint
         result= result + 'eprint = \"%s\",\n' % self.Eprint
-        result= result + 'number = \"{%s}\",\n' % self.Eprint
+        result= result + 'number = \"%s\",\n' % self.Eprint
         result= result + 'title = \"{%s}\",\n' % self.Title
         result= result + 'journal = \"{%s}\",\n' % self.Jornal
         result= result + 'collaboration = \"{%s}\",\n' % self.Author
