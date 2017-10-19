@@ -118,6 +118,10 @@ updated if it has a new bibcode."""
         dest="debug", default=False, action="store_true",
         help="Debug mode; prints extra statements")
     parser.add_option(
+        '-w', '--overwrite',
+        default=False, action="store_true",
+        help="Do not check title similarity to decide if the paper is new in the database")
+    parser.add_option(
         '-o', '--only_pdf',
         default=False, action='store_true',
         help="Download and open PDF for the selected [article_token].")
@@ -235,7 +239,8 @@ def process_token(article_token, prefs, bibdesk):
     # ADSConnector will take care of the cases in which is arXiv instead of ADS
     # at the end it will generat a connector.bib with the bibtex info
     ads_parser = ADSHTMLParser(prefs=prefs)
-    overwrite=prefs['overwrite']
+    #overwrite=prefs['overwrite']
+    overwrite=prefs['options']['overwrite']
     # print 'connector.ads_read', connector.ads_read
 
     if isinstance(connector.ads_read, basestring):
@@ -325,14 +330,16 @@ def process_token(article_token, prefs, bibdesk):
     kept_fields = {}
     # first author is the same
     #overwrite=False
+    print overwrite
+    print found
     if found:
-        notify('Same publication already present in Bibdesk!', article_token, ads_parser.title)
+        notify('Almost same title already present in Bibdesk!', article_token, ads_parser.title)
         if not overwrite:
             notify("Will do nothing!","","")
     if overwrite and found and difflib.SequenceMatcher(
             None,
             bibdesk.authors(bibdesk.pid(found[0]))[0],
-            ads_parser.author[0]).ratio() > .6:
+            ads_parser.author[0]).ratio() > .1:
         # further comparison on abstract
         abstract = bibdesk('abstract', bibdesk.pid(found[0])).stringValue()
         if not abstract or difflib.SequenceMatcher(
@@ -353,6 +360,8 @@ def process_token(article_token, prefs, bibdesk):
             notify('Duplicate publication removed',
                    article_token, ads_parser.title)
             bibdesk.refresh()
+    else:
+        print("authors are similar", ads_parser.author[0],bibdesk.authors(bibdesk.pid(found[0]))[0])
 
     # FIXME refactor out this bibdesk import code?
     if not found:
