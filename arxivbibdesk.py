@@ -361,10 +361,10 @@ def process_token(article_token, prefs, bibdesk):
                    article_token, ads_parser.title)
             bibdesk.refresh()
     else:
-        print("authors are similar", ads_parser.author[0],bibdesk.authors(bibdesk.pid(found[0]))[0])
+        print("Warning: authors are similar", ads_parser.author[0],bibdesk.authors(bibdesk.pid(found[0]))[0])
 
     # FIXME refactor out this bibdesk import code?
-    if not found:
+    if overwrite or not found:
         print ads_parser.bibtex.__str__()
         # add new entry
         pub = bibdesk(
