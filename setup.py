@@ -92,7 +92,7 @@ setup(
     author='foice',
     author_email='',
     url="",
-    description="Add papers from arxiv.org or NASA/SAO ADS to your BibDesk"
+    description="Add papers from arxiv.org, CERN CDS or NASA/SAO ADS to your BibDesk"
                 " bibliography.",
     long_description=read('README.rst'),
     keywords="bibtex ",
@@ -101,7 +101,7 @@ setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: MacOS :: MacOS X",
         "Topic :: Scientific/Engineering :: Astronomy"],
-    py_modules=['arxivbibdesk'],
+    py_modules=['arxivbibdesk','cdsbibdesk'],
     entry_points={'console_scripts': ['arxivbibdesk = arxivbibdesk:main']},
     cmdclass={'service': BuildService}
 )
