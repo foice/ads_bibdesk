@@ -81,7 +81,7 @@ from htmlentitydefs import name2codepoint
 socket.setdefaulttimeout(30)
 
 VERSION = "1.0"
-
+DEBUG=False
 
 def main():
     """Parse options and launch main loop"""
@@ -109,6 +109,7 @@ the pdfs/ directory).
 
 In Pre-print Update mode, every article with an arXiv bibcode will be
 updated if it has a new bibcode."""
+    #DEBUG=False
     epilog = "For more information, visit www.jonathansick.ca/adsbibdesk" \
         " email jonathansick at mac.com or tweet @jonathansick"
     parser = optparse.OptionParser(usage=usage, version=VERSION,
@@ -162,6 +163,7 @@ updated if it has a new bibcode."""
     prefs['options'] = options.__dict__
     if options.debug:
         prefs['debug'] = True
+        DEBUG=True
 
     # Logging saves to log file on when in DEBUG mode
     # Always prints to STDOUT as well
@@ -331,12 +333,12 @@ def process_token(article_token, prefs, bibdesk):
     # first author is the same
     #overwrite=False
     print overwrite
-    print found
-    if found:
+    print len(found)
+    if len(found)>0:
         notify('Almost same title already present in Bibdesk!', article_token, ads_parser.title)
         if not overwrite:
             notify("Will do nothing!","","")
-    if overwrite and found and difflib.SequenceMatcher(
+    if overwrite and len(found)>0 and difflib.SequenceMatcher(
             None,
             bibdesk.authors(bibdesk.pid(found[0]))[0],
             ads_parser.author[0]).ratio() > .1:
@@ -361,10 +363,11 @@ def process_token(article_token, prefs, bibdesk):
                    article_token, ads_parser.title)
             bibdesk.refresh()
     else:
-        print("Warning: authors are similar", ads_parser.author[0],bibdesk.authors(bibdesk.pid(found[0]))[0])
+        if len(found)>0:
+            print("Warning: authors are similar", ads_parser.author[0],bibdesk.authors(bibdesk.pid(found[0]))[0])
 
     # FIXME refactor out this bibdesk import code?
-    if overwrite or not found:
+    if overwrite or len(found)==0:
         print ads_parser.bibtex.__str__()
         # add new entry
         pub = bibdesk(
@@ -713,6 +716,7 @@ class ADSConnector(object):
             self.bibtex = cds_entry.bib
             self.ads_url = cds_entry.ads_url
             self.ads_read = True
+            if DEBUG: print(self.ads_url)
             #print "getattr"
             #print getattr(cds_entry, 'bib')
             #self.pdf_link = cds_entry.pdf_link
@@ -1250,6 +1254,7 @@ class ADSHTMLParser(HTMLParser):
         - arXiv preprint
         - electronic journal link
         """
+        if DEBUG: print(self.links)
         if not self.links:
             return 'failed'
         elif 'download_pdf' in self.prefs and not self.prefs['download_pdf']:
@@ -1336,6 +1341,7 @@ class ADSHTMLParser(HTMLParser):
         if 'preprint' in self.links:
             # arXiv page
             url = self.links['preprint']
+            if DEBUG: print('arXiv preprint URL:',url)
             mirror = None
 
             # fetch PDF directly without parsing the arXiv page
@@ -1350,6 +1356,7 @@ class ADSHTMLParser(HTMLParser):
                 url = urlparse.urlunsplit((
                     'http', mirror, 'pdf/' + self.arxivid, None, None))
                 logging.debug('arXiv PDF (%s)' % url)
+                if DEBUG: print('1360 arXiv preprint URL:',url)
 
             else:
                 # search for PDF link in the arXiv page
@@ -1364,6 +1371,7 @@ class ADSHTMLParser(HTMLParser):
                         url = urlparse.urlsplit(
                             line[begin:-2].replace('&#38;', unichr(38)).
                             lower())
+                        if DEBUG: print('1375 arXiv preprint URL:',url)
                         # use automatic mirror chosen by the ADS mirror
                         if ('arxiv_mirror' not in self.prefs
                                 or not self.prefs['arxiv_mirror']) \
@@ -1372,6 +1380,7 @@ class ADSHTMLParser(HTMLParser):
                                 url.scheme,
                                 mirror.group(1), url.path, url.query,
                                 url.fragment))
+                            if DEBUG: print('1384 arXiv preprint URL:',url)
                             break
                         elif self.prefs['arxiv_mirror']:
                             url = urlparse.urlunsplit((
@@ -1379,11 +1388,17 @@ class ADSHTMLParser(HTMLParser):
                                 self.prefs['arxiv_mirror'],
                                 url.path, url.query,
                                 url.fragment))
+                            if DEBUG: print('1392 arXiv preprint URL:',url)
                             break
                 logging.debug(
                     'arXiv PDF url (*should be DEPRECATED!*): %s' % url)
 
             # get arXiv PDF
+            # check it has http!
+            if 'http:' not in url:
+                if DEBUG: print(url,'is not a valid URL')
+                url='http:'+url
+                if DEBUG: print('changed to ',url)
             fd, pdf = tempfile.mkstemp(suffix='.pdf')
             os.fdopen(fd, 'wb').write(urllib2.urlopen(
                 url.replace('abs', 'pdf')).read())
