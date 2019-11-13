@@ -80,8 +80,8 @@ from htmlentitydefs import name2codepoint
 # default timeout for url calls
 socket.setdefaulttimeout(30)
 
-VERSION = "1.0"
-DEBUG=False
+VERSION = "1.1"
+#DEBUG=True #unused
 
 def main():
     """Parse options and launch main loop"""
@@ -239,7 +239,7 @@ def process_token(article_token, prefs, bibdesk):
     logging.debug("process_token found article token %s", article_token)
     connector = ADSConnector(article_token, prefs)
     # ADSConnector will take care of the cases in which is arXiv instead of ADS
-    # at the end it will generat a connector.bib with the bibtex info
+    # at the end it will generate a connector.bib with the bibtex info
     ads_parser = ADSHTMLParser(prefs=prefs)
     #overwrite=prefs['overwrite']
     overwrite=prefs['options']['overwrite']
@@ -248,11 +248,13 @@ def process_token(article_token, prefs, bibdesk):
     if isinstance(connector.ads_read, basestring):
         # parse the ADS HTML file
         # print 'HTML from ADS'
+        #logging.debug('usr: %s', connector.ads_read)
         ads_parser.parse(connector.ads_read)
 
     elif connector.ads_read and getattr(connector, 'bibtex') is not None:
         # print 'connector into ads_parser'
-        # parsed from arXiv or CDS - fill in ADS info
+        logging.debug('parsed from arXiv or CDS - fill in ads_parser info')
+        #ads_parser.bib = connector.bib
         ads_parser.bibtex = connector.bibtex
         ads_parser.arxivid = ads_parser.bibtex.Eprint
         ads_parser.author = ads_parser.bibtex.Author.split(' and ')
@@ -327,7 +329,7 @@ def process_token(article_token, prefs, bibdesk):
     # FIXME refactor this out
     found = difflib.get_close_matches(
         ads_parser.title, bibdesk.titles,
-        n=1, cutoff=.7)
+        n=1, cutoff=.9)
     kept_pdfs = []
     kept_fields = {}
     # first author is the same
@@ -368,11 +370,21 @@ def process_token(article_token, prefs, bibdesk):
 
     # FIXME refactor out this bibdesk import code?
     if overwrite or len(found)==0:
-        print ads_parser.bibtex.__str__()
+        print vars(ads_parser)
+        #print ads_parser.bibtex.__str__()
+        if hasattr(ads_parser.bibtex, 'bib' ):
+            print('ads_parser.bibtex.bib', ads_parser.bibtex.bib)
+
         # add new entry
-        pub = bibdesk(
-            'import from "%s"' % ads_parser.bibtex.__str__().
-            replace('\\', r'\\').replace('"', r'\"'))
+
+        if hasattr(ads_parser.bibtex, 'bib' ):
+            pub = bibdesk(
+                'import from "%s"' % ads_parser.bibtex.bib.
+                replace('\\', r'\\').replace('"', r'\"'))
+        else:
+            pub = bibdesk(
+                'import from "%s"' % ads_parser.bibtex.__str__().
+                replace('\\', r'\\').replace('"', r'\"'))
         print pub
         # pub id
         pub = pub.descriptorAtIndex_(1).descriptorAtIndex_(3).stringValue()
@@ -716,15 +728,51 @@ class ADSConnector(object):
             self.bibtex = cds_entry.bib
             self.ads_url = cds_entry.ads_url
             self.ads_read = True
-            if DEBUG: print(self.ads_url)
+            logging.debug(self.ads_url)
             #print "getattr"
             #print getattr(cds_entry, 'bib')
             #self.pdf_link = cds_entry.pdf_link
             #cds_entry.bibtex =
 
-        # An arXiv identifier or URL?
         if self._is_arxiv():
-            logging.debug("ADSConnector found arXiv ID %s", self.token)
+            logging.debug("ADSConnector found on arXiv API the arXiv ID %s", self.token)
+            # Try to open the ADS page
+            #if not self._read(self.ads_url):
+            # parse arxiv instead:
+            logging.debug('ADS page (%s) not found for %s' %
+                          (self.ads_url, self.token))
+            notify('ADS page not found', self.token,
+                   'Parsing the arXiv page...')
+            arxiv_bib = ArXivParser()
+            try:
+                logging.debug("searching on arXiv API with parse_at_id for %s", self.arxiv_id)
+                arxiv_bib.parse_at_id(self.arxiv_id)
+                # this defines properties arxiv_bib.info an arxiv_bib.bib with
+                # a dictionary of the bibtex and a objects-based bibtex entry
+                # e.g arxiv_bib.bib.Title
+                # finally it can be casted as a string, which is the bibtex entry
+                # itself. I will achieve (hopefully) such string by ar CDS query
+                logging.debug(
+                    "arXiv page (%s) parsed for %s"
+                    % (arxiv_bib.url, self.token))
+                #logging.debug('bibtex=',arxiv_bib.bib)
+            except ArXivException, err:
+                logging.debug("arXiv API failed, you're in trouble...")
+                raise ADSException(err)
+
+            # dummy ads_read and bibtex
+            self.ads_read = True
+            self.bibtex = arxiv_bib
+
+        # An arXiv identifier or URL?
+
+        if hasattr(self.bibtex, 'bib' ):
+            logging.debug(self.bibtex.bib)
+
+        #Disable ***all** ADS feature, arXiv, DOI, ...
+        '''
+        if self._is_arxiv_via_ADS() and not self.ads_read :
+            logging.debug("ADSConnector found on old ADS the arXiv ID %s", self.token)
             # Try to open the ADS page
             if not self._read(self.ads_url):
                 # parse arxiv instead:
@@ -734,6 +782,7 @@ class ADSConnector(object):
                        'Parsing the arXiv page...')
                 arxiv_bib = ArXivParser()
                 try:
+                    logging.debug("searching for %s", self.arxiv_id)
                     arxiv_bib.parse_at_id(self.arxiv_id)
                     # this defines properties arxiv_bib.info an arxiv_bib.bib with
                     # a dictionary of the bibtex and a objects-based bibtex entry
@@ -766,6 +815,7 @@ class ADSConnector(object):
             if self.url_parts.netloc in self.prefs.adsmirrors \
                     and self._is_ads_page():
                 logging.debug("ADSConnector found ADS page %s", self.token)
+        '''
 
     def _is_CDS(self):
         """Try to classify the token as CDS article by getting the recid:
@@ -784,7 +834,7 @@ class ADSConnector(object):
 
 
 
-    def _is_arxiv(self):
+    def _is_arxiv_via_ADS(self):
         """Try to classify the token as an arxiv article, either:
 
         - new style (YYMM.NNNN), or
@@ -801,6 +851,28 @@ class ADSConnector(object):
                 self.prefs['ads_mirror'],
                 'cgi-bin/bib_query',
                 'arXiv:%s' % self.arxiv_id, ''))
+            logging.debug('arxiv_id: %s', self.arxiv_id)
+            logging.debug('ads_url: %s', self.ads_url)
+            return True
+        else:
+            self.arxiv_id = None
+            return False
+
+    def _is_arxiv(self):
+        """Try to classify the token as an arxiv article, either:
+
+        - new style (YYMM.NNNN), or
+        - old style (astro-ph/YYMMNNN)
+
+        :return: True if arXiv API page is recovered
+        """
+        arxiv_pattern = re.compile('(\d{4,6}\.\d{4,6}|astro\-ph/\d{7})')
+        arxiv_matches = arxiv_pattern.findall(self.token)
+        if len(arxiv_matches) == 1:
+            self.arxiv_id = arxiv_matches[0]
+            self.arXivAPI_url = urlparse.urlunsplit( ('https','export.arxiv.org','api/query','search_query=id:'+self.arxiv_id,'') )
+            logging.debug('arxiv_id: %s', self.arxiv_id)
+            logging.debug('ads_url: %s', self.arXivAPI_url)
             return True
         else:
             self.arxiv_id = None
@@ -831,7 +903,7 @@ class ADSConnector(object):
             url.path, url.query, url.fragment))
         return self._read(self.ads_url)
 
-    def _read(self, ads_url):
+    def _read_ads_url(self, ads_url):
         """Attempt a connection to ads_url, saving the read to
         self.ads_read.
 
@@ -842,6 +914,21 @@ class ADSConnector(object):
             self.ads_read = re.sub(
                 r'<head>[\s\S]*</head>', '',
                 urllib2.urlopen(ads_url).read())
+            return True
+        except urllib2.HTTPError:
+            return False
+
+    def _read(self, arXivAPI_url):
+        """Attempt a connection to arXivAPI_url, saving the read to
+        self.arXivAPI_read.
+
+        :return: True if successful, False otherwise
+        """
+        try:
+            self.arXivAPI_read = urllib2.urlopen(arXivAPI_url).read()
+            self.arXivAPI_xml = ElementTree.fromstring( self.arXivAPI_read )
+            logging.debug(self.arXivAPI_url)
+            logging.debug(self.arXivAPI_xml)
             return True
         except urllib2.HTTPError:
             return False
@@ -1137,8 +1224,10 @@ class ADSHTMLParser(HTMLParser):
 
         html_data is a string containing HTML data from ADS page.
         """
+        #logging.debug(html_data)
+        #logging.debug(self.links)
         self.feed(html_data)
-
+        #logging.debug(self.links)
         logging.debug("ADSHTMLParser found links: %s",
                       pprint.pformat(self.links))
 
@@ -1254,7 +1343,7 @@ class ADSHTMLParser(HTMLParser):
         - arXiv preprint
         - electronic journal link
         """
-        if DEBUG: print(self.links)
+        logging.debug("LINKS ",self.links)
         if not self.links:
             return 'failed'
         elif 'download_pdf' in self.prefs and not self.prefs['download_pdf']:
@@ -1322,7 +1411,7 @@ class ADSHTMLParser(HTMLParser):
                 if 'PDF document' in filetype(pdf):
                     return pdf
 
-        # CDS
+        #
         if 'confnote' in self.links:
             # PDF link
             url = self.links['confnote']
@@ -1341,7 +1430,7 @@ class ADSHTMLParser(HTMLParser):
         if 'preprint' in self.links:
             # arXiv page
             url = self.links['preprint']
-            if DEBUG: print('arXiv preprint URL:',url)
+            logging.debug('arXiv preprint URL:'+url)
             mirror = None
 
             # fetch PDF directly without parsing the arXiv page
@@ -1356,11 +1445,14 @@ class ADSHTMLParser(HTMLParser):
                 url = urlparse.urlunsplit((
                     'http', mirror, 'pdf/' + self.arxivid, None, None))
                 logging.debug('arXiv PDF (%s)' % url)
-                if DEBUG: print('1360 arXiv preprint URL:',url)
+                logging.debug('arXiv PDF (%s)' % url)
+
+                #logging.debug('1435 arXiv preprint URL:',url)
 
             else:
                 # search for PDF link in the arXiv page
                 # this should be *deprecated*
+                logging.debug('search for PDF link in the arXiv page : ( ')
                 for line in urllib2.urlopen(url):
                     if '<h1><a href="/">' in line:
                         mirror = re.search(
@@ -1395,14 +1487,20 @@ class ADSHTMLParser(HTMLParser):
 
             # get arXiv PDF
             # check it has http!
+            logging.debug('getting the PDF from the web at this url: %s' % url)
             if 'http:' not in url:
-                if DEBUG: print(url,'is not a valid URL')
+                logging.debug(url,'is not a valid URL')
                 url='http:'+url
-                if DEBUG: print('changed to ',url)
+                logging.debug('changed to ',url)
+            logging.debug('PDF about to be downloaded')
+
             fd, pdf = tempfile.mkstemp(suffix='.pdf')
             os.fdopen(fd, 'wb').write(urllib2.urlopen(
                 url.replace('abs', 'pdf')).read())
+            logging.debug('PDF was downloaded')
+
             if 'PDF document' in filetype(pdf):
+                logging.debug('returning the PDF')
                 return pdf
             # PDF was not yet generated in the mirror?
             elif '...processing...' in open(pdf).read():
@@ -1445,13 +1543,73 @@ class ArXivParser(object):
         """Helper method to read data from URL, and passes on to parse()."""
         from xml.etree import ElementTree
         self.url = 'http://export.arxiv.org/api/query?id_list=' + arxiv_id
+        logging.debug('trying to get ' + self.url)
         try:
-            self.xml = ElementTree.fromstring(urllib2.urlopen(self.url).read())
+            XMLstring = urllib2.urlopen(self.url).read()
+            logging.debug(XMLstring)
+            XMLtree = ElementTree.fromstring(XMLstring)
+            self.xml = XMLtree
+
         except (urllib2.HTTPError, urllib2.URLError), err:
             logging.debug("ArXivParser failed on URL: %s", self.url)
             raise ArXivException(err)
-        self.info = self.parse(self.xml)
-        self.bib = self.bibtex(self.info)  # FIXME looks like self.bib is None
+        logging.debug(  self.xml.find("id"))
+        self.info = self.parseAPI(self.xml)
+        self.bibtex(self.info) # Creates the bibtex fields
+        self.bib=self.__str__() # Creates the bibtex string
+        logging.debug('bitex entry is \n '+self.bib)
+
+
+    def parseAPI(self, xml):
+        namespaces = {'Atom': 'http://www.w3.org/2005/Atom','atom':'http://arxiv.org/schemas/atom'}
+        info={}
+
+        for child in xml:
+            print( 'tag: ', child.tag, ' attrib: ', child.attrib, child.getchildren() )
+
+        #print( XMLtree.find('Atom:entry',namespaces).getchildren()  )
+        logging.debug('Trying to get some data from the entry')
+        entry= xml.find('Atom:entry',namespaces)
+
+        def printXMLentry(entry):
+            for child in entry:
+                print( 'tag: ', child.tag, ' attrib: ', child.attrib, child.getchildren() )
+
+        printXMLentry(entry)
+        # Get fields directly filed as sub-tag values in the entry tag
+        entry_fields=['id','title','updated','published','summary','comment']
+        for _id in entry_fields:
+            __id=xml.find('Atom:entry/Atom:'+_id,namespaces)
+            logging.debug( __id )
+            if __id is not None:
+                info[_id]=__id.text
+            else:
+                info[_id]=''
+        # Authos into a list of dictionaries
+        def AddSubtab(info,tag='author',subtag='name'):
+            Xauthor = xml.findall('Atom:entry/Atom:'+tag+'/Atom:'+subtag+'',namespaces)
+            authors = [ {subtag:author.text} for author in Xauthor ]
+            #print(authors)
+            info['author']=authors
+
+        AddSubtab(info,tag='author',subtag='name')
+        logging.debug(info['author'])
+
+        # find the primary category and turn it into a dictioanry
+        primary_category=xml.findall('Atom:entry/atom:primary_category',namespaces)
+        info['primary_category'] = [ { attrib:pc.attrib[attrib] for attrib in ['term'] } for pc in primary_category ]
+
+        # find by tag 'type': 'application/pdf' the link to the PDF
+        pdf_link=xml.findall("Atom:entry/Atom:link[@type='application/pdf']",namespaces)
+
+        for l in pdf_link:
+            print(l.attrib['href'])
+        #links = [ l.attrib['href'] for l in link ]
+        info['link'] = [ { attrib:l.attrib[attrib] for attrib in ['href','title','rel','type'] } for l in pdf_link ]
+        #info['link'] =
+
+
+        return info
 
     def parse(self, xml):
         # recursive xml -> list of (tag, info)
@@ -1495,9 +1653,39 @@ class ArXivParser(object):
         self.Year, self.Month = datetime.datetime.strptime(
             info['published'],
             '%Y-%m-%dT%H:%M:%SZ').strftime('%Y %b').split()
+        logging.debug('bibtex succesfully created')
+
+    def bibtexNONE(self, info):
+        """
+        Create BibTex entry. Sets a bunch of "attributes" that are used
+        explictly on __str__ as BibTex entries
+
+        :param info: parsed info dict from arXiv
+        """
+        # TODO turn these into properties?
+        self.Author = ' and '.join(
+            ['{%s}, %s' % (a['name'].split()[-1],
+                           '~'.join(a['name'].split()[:-1]))
+             for a in info['author']
+             if len(a['name'].strip()) > 1]).encode('utf-8')
+        self.Title = info['title'].encode('utf-8')
+        self.Abstract = info['summary'].encode('utf-8')
+        self.AdsComment = info['comment'].replace('"', "'").encode('utf-8') \
+            if 'comment' in info else ""
+        self.Jornal = 'ArXiv e-prints'
+        self.ArchivePrefix = 'arXiv'
+        self.ArXivURL = info['id']
+        self.Eprint = info['id'].split('abs/')[-1]
+        self.PrimaryClass = info['primary_category'][0]['term']
+        self.Year, self.Month = datetime.datetime.strptime(
+            info['published'],
+            '%Y-%m-%dT%H:%M:%SZ').strftime('%Y %b').split()
+        logging.debug('bibtex succesfully created')
+
 
     def __str__(self):
         import string
+        logging.debug(self.__dict__)
         return '@article{%s,\n' % self.Eprint +\
             '\n'.join([
                 '%s = {%s},' % (k, v)
