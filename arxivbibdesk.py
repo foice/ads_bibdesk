@@ -967,8 +967,9 @@ class ADSConnector(object):
 
         :return: True if arXiv API page is recovered
         """
-        arxiv_pattern = re.compile('(\d{4,6}\.\d{4,6}|astro\-ph/\d{7})')
+        arxiv_pattern = re.compile('(\d{4,6}\.\d{4,6}|.*\-.*/\d{7})')
         arxiv_matches = arxiv_pattern.findall(self.token)
+        logging.debug(arxiv_matches)
         if len(arxiv_matches) == 1:
             self.arxiv_id = arxiv_matches[0]
             self.arXivAPI_url = urlparse.urlunsplit( ('https','export.arxiv.org','api/query','search_query=id:'+self.arxiv_id,'') )
