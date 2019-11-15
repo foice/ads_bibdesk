@@ -1696,7 +1696,10 @@ class ArXivParser(object):
             __id=xml.find('Atom:entry/Atom:'+_id,namespaces)
             logging.debug( __id )
             if __id is not None:
-                info[_id]=__id.text
+                if _id == 'title':
+                    info[_id]='{'+__id.text+'}'
+                else:
+                    info[_id]=__id.text
             else:
                 info[_id]=''
         # Authos into a list of dictionaries
@@ -1755,6 +1758,7 @@ class ArXivParser(object):
                            '~'.join(a['name'].split()[:-1]))
              for a in info['author']
              if len(a['name'].strip()) > 1]).encode('utf-8')
+        logging.debug('TITLE %s' % info['title'])
         self.Title = info['title'].encode('utf-8')
         self.Abstract = info['summary'].encode('utf-8')
         self.AdsComment = info['comment'].replace('"', "'").encode('utf-8') \
