@@ -80,7 +80,9 @@ from HTMLParser import HTMLParser, HTMLParseError
 from htmlentitydefs import name2codepoint
 
 def find_recid_in_xml(xml):
-    return xml.find(".//*[@tag='001']").text
+    recid = xml.find(".//*[@tag='001']").text
+    logging.debug(' Found RECID %s ' % recid)
+    return recid
 
 def find_pdf_in_xml(xml):
 
@@ -99,11 +101,80 @@ def find_pdf_in_xml(xml):
 def find_title_in_xml(xml):
     return xml.find(".//*[@tag='245']/*[@code='a']").text
 
+def find_journal_in_xml(xml):
+    try:
+        journal = xml.find(".//*[@tag='773']/*[@code='p']").text
+        return journal
+    except AttributeError:
+        try:
+            journal = xml.find(".//*[@tag='037']/*[@code='a']").text
+            return journal
+        except AttributeError:
+            return ''
+
+def find_pages_in_xml(xml):
+    try:
+        res = xml.find(".//*[@tag='773']/*[@code='c']").text
+        return res
+    except AttributeError:
+        return ''
+
+def find_publication_volume_in_xml(xml):
+    try:
+        res = xml.find(".//*[@tag='773']/*[@code='v']").text
+        return res
+    except AttributeError:
+        return ''
+
+def find_publication_volume_number_in_xml(xml):
+    try:
+        res = xml.find(".//*[@tag='773']/*[@code='n']").text
+        return res
+    except AttributeError:
+        return ''
+
+def find_publication_year_in_xml(xml):
+    try:
+        res = xml.find(".//*[@tag='773']/*[@code='y']").text
+        return res
+    except AttributeError:
+        return ''
+
 def find_abstract_in_xml(xml):
     return xml.find(".//*[@tag='520']/*[@code='a']").text
 
+
+def find_author_in_xml(xml):
+    def TeXify(first_author):
+        texified = '{%s}, %s' % (first_author.strip().split(',')[0],
+                   '~'.join(first_author.strip().split(',')[1:]))
+        return texified
+
+    first_author = xml.find(".//*[@tag='100']/*[@code='a']").text
+    formatted_first_author = TeXify(first_author)
+
+    logging.debug('FIRST AUTHOR %s' % first_author)
+    logging.debug( formatted_first_author )
+    further_authors = [ TeXify(_a.text) for _a in xml.findall(".//*[@tag='700']/*[@code='a']")]
+
+    authors = [formatted_first_author]+further_authors
+    authors_string = ' and '.join(authors)
+    return authors_string
+
 def find_eprint_in_xml(xml):
-    return xml.find(".//*[@tag='037']/*[@code='a']").text
+    try:
+        # go for the arXiv eprint
+        eprint = xml.find(".//*[@tag='037']/*[@code='a']").text
+        logging.debug("eprint found %s" % eprint)
+        return eprint
+    except:
+        try:
+            # go for Inspires eprint
+            eprint = xml.find(".//*[@tag='035']/*[@code='a']").text
+            logging.debug("eprint found %s" % eprint)
+            return eprint
+        except:
+            return find_recid_in_xml(self.xml)
 
 def find_how_many_authors_in_xml(xml):
     return len(xml.findall(".//*[@tag='700']/*[@code='a']"))
@@ -131,11 +202,14 @@ class CDSbibtex(object):
         result= result + 'eprint = \"%s\",\n' % self.Eprint
         result= result + 'number = \"%s\",\n' % self.Eprint
         result= result + 'title = \"{%s}\",\n' % self.Title
-        result= result + 'journal = \"{%s}\",\n' % self.Jornal
+        result= result + 'journal = \"{%s}\",\n' % self.Journal
+        result= result + 'volume = \"{%s}\",\n' % self.Volume
+        result= result + 'number = \"{%s}\",\n' % self.number
+        result= result + 'pages = \"{%s}\",\n' % self.Pages
+        result= result + 'year = \"{%s}\",\n' % self.Year
         result= result + 'collaboration = \"{%s}\",\n' % self.Author
         result= result + 'author = \"{%s}\",\n' % self.Author
-        url = 'https://cds.cern.ch/record/' + self.recid + "/"
-        result= result + 'url = \"%s\",\n' % url
+        result= result + 'url = \"%s\",\n' % self.Url
         result= result + '}'
         return result
 
@@ -151,19 +225,29 @@ class CDSParser(object):
         """
         pass
 
-    def parse_at_id(self, arxiv_id):
+    def parse_at_id(self, arxiv_id,server='CDS'):
         """Helper method to read data from URL, and passes on to parse()."""
         from xml.etree import ElementTree
-        self.url = 'https://cds.cern.ch/search?ln=en&p=reportnumber%3A"' + arxiv_id + '"&action_search=Search&op1=a&m1=a&p1=&f1=&c=CERN+Document+Server&sf=&so=d&rm=&rg=10&sc=1&of=xm'
+        if server=='CDS':
+            logging.debug('requested server for MARCXML is %s ' % server)
+            self.url = 'https://cds.cern.ch/search?ln=en&p=reportnumber%3A"' + arxiv_id + '"&action_search=Search&op1=a&m1=a&p1=&f1=&c=CERN+Document+Server&sf=&so=d&rm=&rg=10&sc=1&of=xm'
+            ads_url_base = 'https://cds.cern.ch/record/'
+
+        if server =='Inspires':
+            logging.debug('requested server for MARCXML is %s ' % server)
+            self.url='https://inspirehep.net/search?ln=en&p=recid+'+arxiv_id+'&of=xm'
+            ads_url_base =  'https://inspirehep.net/record/'
         try:
             self.xml = ElementTree.fromstring(urllib2.urlopen(self.url).read())
         except (urllib2.HTTPError, urllib2.URLError), err:
-            logging.debug("ArXivParser failed on URL: %s", self.url)
+            logging.debug("Could not get MARCXML from URL: %s", self.url)
             raise ArXivException(err)
 
         if find_recid_in_xml(self.xml)>0:
-            self.bibtex(self.xml)
-            self.ads_url = 'https://cds.cern.ch/record/' + self.recid + "/"
+            logging.debug('recid found')
+            self.bibtex(self.xml,server=server)
+            self.ads_url = ads_url_base + self.recid + "/"
+
             #print getattr(self.bib, 'Title')
             #pdf_url = find_pdf_in_xml(self.xml)
             #self.pdf_url = pdf_url
@@ -176,20 +260,40 @@ class CDSParser(object):
         #self.info = self.parse(self.xml)
         #self.bib = self.bibtex(self.info)  # FIXME looks like self.bib is None
 
-    def bibtex(self,xml):
+    def bibtex(self,xml,server='CDS'):
         bibentry = CDSbibtex()
         bibentry.Eprint = find_eprint_in_xml(xml)
-        bibentry.Author = find_collaboration_in_xml(xml)
+        logging.debug('Filled with EPRINT %s ' % bibentry.Eprint)
+
+        bibentry.recid = find_recid_in_xml(xml)
+        self.recid=bibentry.recid
+
+        if server=='CDS':
+            bibentry.Author = find_collaboration_in_xml(xml)
+            bibentry.Journal = 'CERN Note'
+            baseUSL= 'https://cds.cern.ch/record/'
+        if server=='Inspires':
+            bibentry.Author = find_author_in_xml(xml)
+            bibentry.Journal = find_journal_in_xml(xml)
+            baseUSL= 'https://inspirehep.net/record/'
+
+        bibentry.Year = find_publication_year_in_xml(xml)
+        bibentry.Volume = find_publication_volume_in_xml(xml)
+        bibentry.Pages = find_pages_in_xml(xml)
+        bibentry.number = find_publication_volume_number_in_xml(xml)
+
+        url = baseUSL + self.recid + "/"
+        bibentry.Url = url
+
         bibentry.Title = find_title_in_xml(xml)
         bibentry.Abstract = find_abstract_in_xml(xml)
         bibentry.AdsComment = ''
-        bibentry.Jornal = 'CERN Note'
-        bibentry.recid = find_recid_in_xml(xml)
+
         info={}
         info['link']=find_pdf_in_xml(xml)
         bibentry.info = info
+        #
         self.bib=bibentry
-        self.recid=bibentry.recid
 
 
     def parse(self, xml):
@@ -234,7 +338,7 @@ class CDSParser(object):
     #     self.Abstract = info['summary'].encode('utf-8')
     #     self.AdsComment = info['comment'].replace('"', "'").encode('utf-8') \
     #         if 'comment' in info else ""
-    #     self.Jornal = 'ArXiv e-prints'
+    #     self.Journal = 'ArXiv e-prints'
     #     self.ArchivePrefix = 'arXiv'
     #     self.ArXivURL = info['id']
     #     self.Eprint = info['id'].split('abs/')[-1]
