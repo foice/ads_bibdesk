@@ -216,7 +216,7 @@ class CDSbibtex(object):
         result= result + 'number = \"{%s}\",\n' % self.number
         result= result + 'pages = \"{%s}\",\n' % self.Pages
         result= result + 'year = \"{%s}\",\n' % self.Year
-        result= result + 'collaboration = \"{%s}\",\n' % self.Author
+        #result= result + 'collaboration = \"{%s}\",\n' % self.Author
         result= result + 'author = \"{%s}\",\n' % self.Author
         result= result + 'url = \"%s\",\n' % self.Url
         result= result + 'doi = \"%s\",\n' % self.doi
