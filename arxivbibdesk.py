@@ -26,6 +26,8 @@ Input may be one of the following:
 - arXiv abstract page
 - arXiv identifier
 """
+import cdsbibdesk
+
 import datetime
 import difflib
 import fnmatch
@@ -80,7 +82,7 @@ from htmlentitydefs import name2codepoint
 # default timeout for url calls
 socket.setdefaulttimeout(30)
 
-VERSION = "1.1"
+VERSION = "1.2"
 #DEBUG=True #unused
 
 def main():
@@ -109,7 +111,7 @@ the pdfs/ directory).
 
 In Pre-print Update mode, every article with an arXiv bibcode will be
 updated if it has a new bibcode."""
-    #DEBUG=False
+    DEBUG=False
     epilog = "For more information, visit www.jonathansick.ca/adsbibdesk" \
         " email jonathansick at mac.com or tweet @jonathansick"
     parser = optparse.OptionParser(usage=usage, version=VERSION,
@@ -118,6 +120,14 @@ updated if it has a new bibcode."""
         '-d', '--debug',
         dest="debug", default=False, action="store_true",
         help="Debug mode; prints extra statements")
+    parser.add_option(
+            '-k', '--citekey',
+            default=False, action="store_true",
+            help="Do not check title similarity to decide if the paper is new in the database")
+    parser.add_option(
+            '-b', '--fetch_bibtex',
+            default=False, action="store_true",
+            help="Do not check title similarity to decide if the paper is new in the database")
     parser.add_option(
         '-w', '--overwrite',
         default=False, action="store_true",
@@ -155,7 +165,11 @@ updated if it has a new bibcode."""
         '-t', '--to_date',
         help='MM/YY date of publication up to which update arXiv')
     parser.add_option_group(arxiv_update_group)
+
+
+    ###################################
     options, args = parser.parse_args()
+    ###################################
 
     # Get preferences from (optional) config file
     prefs = Preferences()
@@ -243,6 +257,8 @@ def process_token(article_token, prefs, bibdesk):
     ads_parser = ADSHTMLParser(prefs=prefs)
     #overwrite=prefs['overwrite']
     overwrite=prefs['options']['overwrite']
+    citekey=prefs['options']['citekey']
+    print_bibtex=prefs['options']['fetch_bibtex']
     # print 'connector.ads_read', connector.ads_read
 
     if isinstance(connector.ads_read, basestring):
@@ -378,19 +394,28 @@ def process_token(article_token, prefs, bibdesk):
         # add new entry
 
         if hasattr(ads_parser.bibtex, 'bib' ):
+            # ads_parser.bibtex.bib already contains the bibtex string
+            # this is the case for papers imported from arXiv API (because the API gives no bibtex)
             pub = bibdesk(
                 'import from "%s"' % ads_parser.bibtex.bib.
                 replace('\\', r'\\').replace('"', r'\"'))
         else:
-            pub = bibdesk(
-                'import from "%s"' % ads_parser.bibtex.__str__().
-                replace('\\', r'\\').replace('"', r'\"'))
+            # the bibtex string needs to be made from the data in the ads_parser.bibtex
+            # this needs to be able to tell if the item has to get a link to inspires or CDS
+
+
+            _string = 'import from "%s"' % ads_parser.bibtex.__str__().\
+            replace('\\', r'\\').replace('"', r'\"')
+            logging.debug('Tell Bibdesk %s' % _string)
+            pub = bibdesk(_string)
         print pub
         # pub id
         pub = pub.descriptorAtIndex_(1).descriptorAtIndex_(3).stringValue()
         print pub
-        # automatic cite key
-        bibdesk('set cite key to generated cite key', pub)
+        logging.debug('using automatic cite-key %s' % pub)
+        if citekey:
+            # automatic cite key (following the auto-file format!)
+            bibdesk('set cite key to generated cite key', pub)
 
         # abstract
         if ads_parser.abstract.startswith('http://'):
@@ -722,7 +747,7 @@ class ADSConnector(object):
             logging.debug("ADSConnector found CDS ID %s", self.token)
             notify('CDS page found for', self.token,
                    'Parsing the XML page...')
-            import cdsbibdesk
+
             cds_entry = cdsbibdesk.CDSParser()
             cds_entry.parse_at_id(self.token)
             self.bibtex = cds_entry.bib
@@ -739,10 +764,9 @@ class ADSConnector(object):
             # Try to open the ADS page
             #if not self._read(self.ads_url):
             # parse arxiv instead:
-            logging.debug('ADS page (%s) not found for %s' %
-                          (self.ads_url, self.token))
-            notify('ADS page not found', self.token,
-                   'Parsing the arXiv page...')
+            #logging.debug('ADS page (%s) not found for %s' %
+            #              (self.ads_url, self.token))
+            notify('Parsing the arXiv page for', self.token, '')
             arxiv_bib = ArXivParser()
             try:
                 logging.debug("searching on arXiv API with parse_at_id for %s", self.arxiv_id)
@@ -764,7 +788,53 @@ class ADSConnector(object):
             self.ads_read = True
             self.bibtex = arxiv_bib
 
-        # An arXiv identifier or URL?
+
+        is_Inspires_DOI = self._is_Inspires_DOI()
+
+        if is_Inspires_DOI:
+            from xml.etree import ElementTree
+            # change self.token into a RECID
+            logging.debug(' token from DOI %s' % self.token )
+            url_by_DOI = 'https://inspirehep.net/search?ln=en&p=doi+'+self.token+'&of=xm'
+            _xml=ElementTree.fromstring(urllib2.urlopen(url_by_DOI).read())
+            'https://inspirehep.net/search?ln=en&p=recid+'+self.token+'&of=xm'
+            self.token = cdsbibdesk.find_recid_in_xml(_xml)
+            logging.debug(' new token %s' % self.token )
+
+        is_Inspires_RECID = self._is_Inspires_RECID()
+
+        if is_Inspires_RECID: # RECID or DOI
+            logging.debug("ADSConnector found on Inspires through the RECID or DOI %s", self.token)
+            notify('Inspires data found for', self.token,
+                   'Parsing the XML and BibTeX output page...')
+
+            # Obtain Inspires Bibtex
+            logging.debug("fetching BibTeX from Inspires web pages for %s" % self.arxiv_id)
+            try:
+                url_string = "https://labs.inspirehep.net/api/literature/"+ self.token
+                request = urllib2.Request(url_string, headers={"accept" : "application/x-bibtex"})
+                contents = urllib2.urlopen(request).read()
+                logging.debug(contents)
+                logging.debug(type(contents))
+                if len(contents)>0:
+                    bibtex_string =  contents
+                    #if print_bibtex:
+                    print bibtex_string
+
+            except (urllib2.HTTPError, urllib2.URLError), err:
+                logging.debug("fetching BibTeX from Inspires failed on URL: %s", url_string)
+                #logging.debug(err.code,err.args)
+
+            # populate the attributes as if it were a CDS or arxiv_bib
+            cds_entry = cdsbibdesk.CDSParser()
+            cds_entry.parse_at_id(self.token,server='Inspires')
+            self.bibtex = cds_entry.bib
+            self.ads_url = cds_entry.ads_url
+            self.ads_read = True
+            logging.debug(self.ads_url)
+            logging.debug(
+                    "Inspires page (%s) parsed for %s"
+                    % (url_string, self.token))
 
         if hasattr(self.bibtex, 'bib' ):
             logging.debug(self.bibtex.bib)
@@ -832,9 +902,40 @@ class ADSConnector(object):
             return True
         return False
 
+    # TODO: DOI from Inspires
+    #https://labs.inspirehep.net/api/literature?q=doi=10.1063/1.3293892
+    # or directly in BibTex
+    # curl -H "accept: application/x-bibtex" https://labs.inspirehep.net/api/literature?q=doi=10.1063/1.3293892
 
+    # TODO recid from Inspires
+    #curl -H "accept: application/x-bibtex" https://labs.inspirehep.net/api/literature/123456
+    def _is_Inspires_RECID(self):
+        try:
+            url_string = "https://labs.inspirehep.net/api/literature/"+ self.token
+            request = urllib2.Request(url_string, headers={"accept" : "application/x-bibtex"})
+            contents = urllib2.urlopen(request).read()
+            logging.debug(contents)
+            logging.debug(type(contents))
+            if len(contents)>0:
+                return True
+        except (urllib2.HTTPError, urllib2.URLError), err:
+            logging.debug("RECID search failed on URL: %s", url_string)
+        return False
 
-    def _is_arxiv_via_ADS(self):
+    def _is_Inspires_DOI(self):
+        try:
+            url_string = 'https://labs.inspirehep.net/api/literature?q=doi='+ self.token
+            request = urllib2.Request(url_string, headers={"accept" : "application/x-bibtex"})
+            contents = urllib2.urlopen(request).read()
+            logging.debug(contents)
+            logging.debug(type(contents))
+            if len(contents)>0:
+                return True
+        except (urllib2.HTTPError, urllib2.URLError), err:
+            logging.debug("RECID search failed on URL: %s", url_string)
+        return False
+
+    def _is_arxiv_via_ADS(self): # DEPRECATED
         """Try to classify the token as an arxiv article, either:
 
         - new style (YYMM.NNNN), or
@@ -1540,7 +1641,11 @@ class ArXivParser(object):
         pass
 
     def parse_at_id(self, arxiv_id):
-        """Helper method to read data from URL, and passes on to parse()."""
+        """
+        Helper method to read data from URL, and passes on to parse().
+        sets self.bib woth a string containign the bibtex info
+        sets self.info via self.parseAPI
+        """
         from xml.etree import ElementTree
         self.url = 'http://export.arxiv.org/api/query?id_list=' + arxiv_id
         logging.debug('trying to get ' + self.url)
@@ -1561,6 +1666,13 @@ class ArXivParser(object):
 
 
     def parseAPI(self, xml):
+        """
+        populates `self.info` with data from the arXiv API
+
+        `self.info` is a dictiory that must have the following entries
+            'id','title','updated','published','summary','comment'
+        plus a dict-valued entry `info['author']`, `info['link']`, `info['primary_category']`
+        """
         namespaces = {'Atom': 'http://www.w3.org/2005/Atom','atom':'http://arxiv.org/schemas/atom'}
         info={}
 
@@ -1630,7 +1742,7 @@ class ArXivParser(object):
 
     def bibtex(self, info):
         """
-        Create BibTex entry. Sets a bunch of "attributes" that are used
+        Create BibTex entry. Sets a bunch of "attributes" (Eprint, Title, Author, ... ) that are used
         explictly on __str__ as BibTex entries
 
         :param info: parsed info dict from arXiv
