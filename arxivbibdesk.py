@@ -300,6 +300,7 @@ def process_token(article_token, prefs, bibdesk):
                 ads_parser.links = {'preprint': link}
         except IndexError:
             logging.debug("process_token could not find preprint PDF link")
+            notify('PDF is missing','','')
             pass
 
     elif connector.ads_read is None:
@@ -1445,7 +1446,7 @@ class ADSHTMLParser(HTMLParser):
         - arXiv preprint
         - electronic journal link
         """
-        logging.debug("LINKS ",self.links)
+        logging.debug("LINKS %s" % self.links)
         if not self.links:
             return 'failed'
         elif 'download_pdf' in self.prefs and not self.prefs['download_pdf']:
