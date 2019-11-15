@@ -101,6 +101,7 @@ def find_pdf_in_xml(xml):
 def find_title_in_xml(xml):
     return xml.find(".//*[@tag='245']/*[@code='a']").text
 
+
 def find_journal_in_xml(xml):
     try:
         journal = xml.find(".//*[@tag='773']/*[@code='p']").text
@@ -111,6 +112,14 @@ def find_journal_in_xml(xml):
             return journal
         except AttributeError:
             return ''
+
+def find_DOI_in_xml(xml):
+    try:
+        res =  xml.find(".//*[@tag='024']/*[@code='a']").text
+        logging.debug('DOI %s' % res)
+        return res
+    except AttributeError:
+        return ''
 
 def find_pages_in_xml(xml):
     try:
@@ -210,6 +219,7 @@ class CDSbibtex(object):
         result= result + 'collaboration = \"{%s}\",\n' % self.Author
         result= result + 'author = \"{%s}\",\n' % self.Author
         result= result + 'url = \"%s\",\n' % self.Url
+        result= result + 'doi = \"%s\",\n' % self.doi
         result= result + '}'
         return result
 
@@ -281,6 +291,7 @@ class CDSParser(object):
         bibentry.Volume = find_publication_volume_in_xml(xml)
         bibentry.Pages = find_pages_in_xml(xml)
         bibentry.number = find_publication_volume_number_in_xml(xml)
+        bibentry.doi = find_DOI_in_xml(xml)
 
         url = baseUSL + self.recid + "/"
         bibentry.Url = url
