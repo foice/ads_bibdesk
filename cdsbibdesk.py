@@ -271,6 +271,9 @@ class CDSParser(object):
         #self.bib = self.bibtex(self.info)  # FIXME looks like self.bib is None
 
     def bibtex(self,xml,server='CDS'):
+
+        print 'Called the cds.bibtex method with options server=',server
+        print xml 
         bibentry = CDSbibtex()
         bibentry.Eprint = find_eprint_in_xml(xml)
         logging.debug('Filled with EPRINT %s ' % bibentry.Eprint)

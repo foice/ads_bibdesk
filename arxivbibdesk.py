@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 """
 ADS to BibDesk -- frictionless import of ADS publications into BibDesk
 Copyright (C) 2014  Rui Pereira <rui.pereira@gmail.com> and
@@ -82,7 +82,7 @@ from htmlentitydefs import name2codepoint
 # default timeout for url calls
 socket.setdefaulttimeout(30)
 
-VERSION = "1.2"
+VERSION = "1.3"
 #DEBUG=True #unused
 
 def main():
@@ -111,7 +111,7 @@ the pdfs/ directory).
 
 In Pre-print Update mode, every article with an arXiv bibcode will be
 updated if it has a new bibcode."""
-    DEBUG=False
+    DEBUG=True
     epilog = "For more information, visit www.jonathansick.ca/adsbibdesk" \
         " email jonathansick at mac.com or tweet @jonathansick"
     parser = optparse.OptionParser(usage=usage, version=VERSION,
@@ -344,6 +344,9 @@ def process_token(article_token, prefs, bibdesk):
     # match title and first author using fuzzy string comparison
     # FIXME put cutoff into preferences; could be related to problems
     # FIXME refactor this out
+
+    print 'Check for duplicates'
+
     found = difflib.get_close_matches(
         ads_parser.title, bibdesk.titles,
         n=1, cutoff=.9)
@@ -351,8 +354,8 @@ def process_token(article_token, prefs, bibdesk):
     kept_fields = {}
     # first author is the same
     #overwrite=False
-    print overwrite
-    print len(found)
+    print 'Overwrite flag:', overwrite
+    print 'Items with possible overlap: ', len(found)
     if len(found)>0:
         notify('Almost same title already present in Bibdesk!', article_token, ads_parser.title)
         if not overwrite:
@@ -387,19 +390,26 @@ def process_token(article_token, prefs, bibdesk):
 
     # FIXME refactor out this bibdesk import code?
     if overwrite or len(found)==0:
+        print "Import in BibDesk"
+        print "------BIBTEX DATA------"
         print vars(ads_parser)
+        print "------------------"
         #print ads_parser.bibtex.__str__()
         if hasattr(ads_parser.bibtex, 'bib' ):
+            print 'ads_parser.bibtex.bib EXISTS'
+            print "------BIBTEX SEQUENCE------"
             print('ads_parser.bibtex.bib', ads_parser.bibtex.bib)
-
+            print "---------------------------"
         # add new entry
 
         if hasattr(ads_parser.bibtex, 'bib' ):
             # ads_parser.bibtex.bib already contains the bibtex string
             # this is the case for papers imported from arXiv API (because the API gives no bibtex)
+
             pub = bibdesk(
                 'import from "%s"' % ads_parser.bibtex.bib.
                 replace('\\', r'\\').replace('"', r'\"'))
+
         else:
             # the bibtex string needs to be made from the data in the ads_parser.bibtex
             # this needs to be able to tell if the item has to get a link to inspires or CDS
@@ -409,7 +419,7 @@ def process_token(article_token, prefs, bibdesk):
             replace('\\', r'\\').replace('"', r'\"')
             logging.debug('Tell Bibdesk %s' % _string)
             pub = bibdesk(_string)
-        print pub
+
         # pub id
         pub = pub.descriptorAtIndex_(1).descriptorAtIndex_(3).stringValue()
         print pub
@@ -802,6 +812,7 @@ class ADSConnector(object):
             self.token = cdsbibdesk.find_recid_in_xml(_xml)
             logging.debug(' new token %s' % self.token )
 
+        # print "is_Inspires_RECID"
         is_Inspires_RECID = self._is_Inspires_RECID()
 
         if is_Inspires_RECID: # RECID or DOI
@@ -912,7 +923,7 @@ class ADSConnector(object):
     #curl -H "accept: application/x-bibtex" https://labs.inspirehep.net/api/literature/123456
     def _is_Inspires_RECID(self):
         try:
-            url_string = "https://labs.inspirehep.net/api/literature/"+ self.token
+            url_string = "https://inspirehep.net/api/literature/"+ self.token
             request = urllib2.Request(url_string, headers={"accept" : "application/x-bibtex"})
             contents = urllib2.urlopen(request).read()
             logging.debug(contents)
@@ -925,7 +936,7 @@ class ADSConnector(object):
 
     def _is_Inspires_DOI(self):
         try:
-            url_string = 'https://labs.inspirehep.net/api/literature?q=doi='+ self.token
+            url_string = 'https://inspirehep.net/api/literature?q=doi='+ self.token
             request = urllib2.Request(url_string, headers={"accept" : "application/x-bibtex"})
             contents = urllib2.urlopen(request).read()
             logging.debug(contents)
@@ -1200,13 +1211,19 @@ class BibDesk(object):
         :param strlist: return output as list of string
         :param error: return full output of call, including error
         """
+
+
         if pid is None:
             # address all publications
             cmd = 'tell first document of application "BibDesk" to %s' % cmd
+            print 'pid was *None*, so cmd=',cmd
         else:
-            # address a single publicatin
+            print 'pid was NOT None, so cmd=',cmd
+            # address a single publication
+            print 'cmd=',cmd
             cmd = 'tell first document of application "BibDesk" to '\
                   'tell first publication whose id is "%s" to %s' % (pid, cmd)
+
         output = self.app.initWithSource_(cmd).executeAndReturnError_(None)
         if not error:
             output = output[0]
@@ -1752,6 +1769,7 @@ class ArXivParser(object):
 
         :param info: parsed info dict from arXiv
         """
+        print type(info),' should be a dictiory'
         # TODO turn these into properties?
         self.Author = ' and '.join(
             ['{%s}, %s' % (a['name'].split()[-1],
